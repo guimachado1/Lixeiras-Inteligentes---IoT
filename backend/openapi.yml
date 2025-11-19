@@ -1,0 +1,381 @@
+openapi: 3.0.3
+info:
+  title: Smart Bin API
+  version: 1.0.0
+  description: |
+    API para monitoramento de lixeiras inteligentes (dashboard + telemetria ESP32).
+
+servers:
+  - url: http://localhost:3000
+    description: Ambiente local de desenvolvimento
+
+tags:
+  - name: Health
+    description: Healthcheck da API
+  - name: Dashboard
+    description: Dados agregados para o dashboard de lixeiras
+  - name: Bins
+    description: CRUD de lixeiras
+  - name: Telemetry
+    description: Recebimento de telemetria dos dispositivos (ESP32)
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Healthcheck da API
+      responses:
+        '200':
+          description: API saudável
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthCheck'
+
+  /api/dashboard:
+    get:
+      tags: [Dashboard]
+      summary: Retorna dados agregados para o dashboard de lixeiras
+      parameters:
+        - name: filter
+          in: query
+          description: >
+            Filtro de lixeiras exibidas no dashboard.
+
+            * `all` – todas
+            * `today` – atualizadas hoje
+            * `yesterday` – atualizadas ontem
+            * `partial` – parcialmente cheias (entre 30% e 90%)
+            * `offline` – com status offline
+          schema:
+            type: string
+            enum: [all, today, yesterday, partial, offline]
+            default: all
+        - name: orderBy
+          in: query
+          description: >
+            Ordenação dos resultados.
+
+            * `priority` – prioridade (padrão)
+            * `fill` – nível de ocupação (%)
+            * `name` – nome da lixeira
+          schema:
+            type: string
+            enum: [priority, fill, name]
+            default: priority
+      responses:
+        '200':
+          description: Dados do dashboard retornados com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardResponse'
+
+  /api/bins:
+    get:
+      tags: [Bins]
+      summary: Lista todas as lixeiras cadastradas
+      responses:
+        '200':
+          description: Lista de lixeiras
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Bin'
+    post:
+      tags: [Bins]
+      summary: Cria uma nova lixeira
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBinRequest'
+      responses:
+        '201':
+          description: Lixeira criada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bin'
+        '400':
+          description: Erro de validação ao criar lixeira
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/bins/{id}:
+    get:
+      tags: [Bins]
+      summary: Retorna detalhes de uma lixeira
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID da lixeira (Mongo ObjectId)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Lixeira encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bin'
+        '404':
+          description: Lixeira não encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags: [Bins]
+      summary: Remove uma lixeira
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID da lixeira (Mongo ObjectId)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Lixeira removida com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bin'
+        '404':
+          description: Lixeira não encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/telemetry:
+    post:
+      tags: [Telemetry]
+      summary: Recebe telemetria enviada pelo dispositivo (ESP32)
+      description: |
+        Endpoint chamado pelo firmware da lixeira inteligente.
+
+        Atualiza o nível de ocupação da lixeira associada ao `deviceId`
+        e registra a leitura no histórico de telemetria.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TelemetryRequest'
+      responses:
+        '200':
+          description: Telemetria processada com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Telemetria recebida com sucesso
+                  bin:
+                    $ref: '#/components/schemas/Bin'
+        '400':
+          description: Erro de validação na telemetria
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Lixeira (deviceId) não encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    HealthCheck:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+
+    Bin:
+      type: object
+      description: Lixeira cadastrada no sistema
+      properties:
+        _id:
+          type: string
+          example: 6650f7b3c5089b1ad89e1234
+        name:
+          type: string
+          example: Lixeira #1
+        location:
+          type: string
+          example: Estacionamento P3
+        campus:
+          type: string
+          example: Campus Joinville
+        deviceId:
+          type: string
+          example: lixeira-esp32-01
+        priority:
+          type: integer
+          example: 1
+        status:
+          type: string
+          description: Status atual da lixeira
+          enum: [online, offline]
+          example: online
+        fillPercent:
+          type: number
+          format: float
+          example: 36
+        state:
+          type: string
+          description: Estado textual da lixeira
+          example: parcial
+        lastUpdate:
+          type: string
+          format: date-time
+          nullable: true
+          example: 2025-11-18T23:47:00.000Z
+
+    CreateBinRequest:
+      type: object
+      required:
+        - name
+        - deviceId
+      properties:
+        name:
+          type: string
+          example: Lixeira #1
+        location:
+          type: string
+          example: Estacionamento P3
+        campus:
+          type: string
+          example: Campus Joinville
+        deviceId:
+          type: string
+          example: lixeira-esp32-01
+        priority:
+          type: integer
+          default: 1
+          example: 1
+
+    TelemetryRequest:
+      type: object
+      required:
+        - deviceId
+        - fill_percent
+      properties:
+        deviceId:
+          type: string
+          description: ID do dispositivo (mapeado para uma lixeira)
+          example: lixeira-esp32-01
+        distance_cm:
+          type: number
+          format: float
+          description: Distância medida pelo sensor ultrassônico, em cm
+          example: 12.34
+        fill_percent:
+          type: number
+          format: float
+          description: Nível de ocupação calculado (0 a 100)
+          example: 36
+        state:
+          type: string
+          description: Estado textual da lixeira (ex. vazia/parcial/cheia)
+          example: parcial
+
+    DashboardResponse:
+      type: object
+      properties:
+        campus:
+          type: string
+          example: Campus Joinville
+        lastSync:
+          type: string
+          format: date-time
+          nullable: true
+          example: 2025-11-18T11:42:00.000Z
+        summary:
+          $ref: '#/components/schemas/DashboardSummary'
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardBin'
+        totalResults:
+          type: integer
+          example: 1
+
+    DashboardSummary:
+      type: object
+      properties:
+        fullBins:
+          type: object
+          properties:
+            count:
+              type: integer
+              example: 0
+            threshold:
+              type: integer
+              example: 90
+        overloadedBins:
+          type: object
+          properties:
+            count:
+              type: integer
+              example: 0
+            threshold:
+              type: integer
+              example: 95
+        avgFillPercent:
+          type: integer
+          example: 36
+
+    DashboardBin:
+      type: object
+      description: Dados de cada lixeira exibida no dashboard (card)
+      properties:
+        id:
+          type: string
+          example: 6650f7b3c5089b1ad89e1234
+        name:
+          type: string
+          example: Lixeira #1
+        location:
+          type: string
+          example: Estacionamento P3
+        status:
+          type: string
+          enum: [online, offline]
+          example: online
+        fillPercent:
+          type: number
+          format: float
+          example: 36
+        lastUpdate:
+          type: string
+          format: date-time
+          example: 2025-11-18T23:47:00.000Z
+        priority:
+          type: integer
+          example: 1
+
+    ErrorResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: Mensagem de erro descritiva
+        detail:
+          type: string
+          nullable: true
+          example: Campo X é obrigatório
